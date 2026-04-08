@@ -2,8 +2,8 @@ name: Scrape Lottery Results
 
 on:
   schedule:
-    # Cada 30 minutos
-    - cron: '*/30 * * * *'
+    # Cada 10 minutos
+    - cron: '*/10 * * * *'
   workflow_dispatch:  # También ejecutable manualmente
 
 jobs:
