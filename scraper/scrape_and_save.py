@@ -120,7 +120,7 @@ if __name__ == "__main__":
     results = scrape(today)
     print(f"Found {len(results)} lotteries")
     for r in results:
-        print(f"  [{r['id']}] {r['name']}: {'-'.join(r['n'])}")
+        print(f"  [{r['id']}] {r['name']}: {r['number']}")
 
     if not SUPABASE_KEY:
         print("No SUPABASE_KEY — skipping save")
