@@ -73,14 +73,11 @@ def scrape(date_str=None):
             if not numbers:
                 continue
 
-            date_el = block.find("div", "session-date")
-            draw_date = date_el.getText().strip() if date_el else date_str
-
             results.append({
-                "id":   match["id"],
-                "name": match["name"],
-                "date": draw_date,
-                "n":    numbers
+                "id":     match["id"],
+                "name":   match["name"],
+                "date":   date_str,          # siempre DD-MM-YYYY del param, no del DOM
+                "number": "-".join(numbers)  # "01-23-4" — formato que lee la app
             })
             seen_ids.add(match["id"])
         except Exception as e:
