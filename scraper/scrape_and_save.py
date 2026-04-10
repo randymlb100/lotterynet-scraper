@@ -169,5 +169,7 @@ if __name__ == "__main__":
 
     if not SUPABASE_KEY:
         print("No SUPABASE_KEY — skipping save")
+    elif not results:
+        print("No results found for today — skipping save (no draws yet or date mismatch)")
     else:
         save_to_supabase(today, results)
