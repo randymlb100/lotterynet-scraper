@@ -88,10 +88,44 @@ def scrape(date_str=None):
     results.sort(key=lambda x: int(x["id"]))
     return results
 
+def fetch_existing_from_supabase(date_str):
+    """Fetch previously saved results for the given date so we can merge."""
+    key = f"lot_results_cache_by_day:{date_str}"
+    import urllib.parse
+    params = urllib.parse.urlencode({"key": f"eq.{key}", "select": "value"})
+    url = f"{SUPABASE_URL}/rest/v1/lotterynet_kv?{params}"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+        },
+    )
+    try:
+        resp = urllib.request.urlopen(req, timeout=15)
+        rows = json.loads(resp.read().decode())
+        if rows and rows[0].get("value"):
+            existing = rows[0]["value"]
+            if isinstance(existing, str):
+                existing = json.loads(existing)
+            if isinstance(existing, list):
+                return existing
+    except Exception as e:
+        print(f"Warning: could not fetch existing results: {e}")
+    return []
+
 def save_to_supabase(date_str, results):
     import urllib.parse
     key = f"lot_results_cache_by_day:{date_str}"
-    value = json.dumps(results, ensure_ascii=False)
+
+    # Merge: start from existing saved results, override with fresh ones by id
+    existing = fetch_existing_from_supabase(date_str)
+    merged = {r["id"]: r for r in existing}
+    for r in results:
+        merged[r["id"]] = r          # fresh data wins
+    merged_list = sorted(merged.values(), key=lambda x: int(x["id"]))
+
+    value = json.dumps(merged_list, ensure_ascii=False)
 
     payload = json.dumps({"key": key, "value": value, "upd": datetime.datetime.utcnow().isoformat() + "Z"}).encode("utf-8")
     url = f"{SUPABASE_URL}/rest/v1/lotterynet_kv"
@@ -109,7 +143,7 @@ def save_to_supabase(date_str, results):
     )
     try:
         resp = urllib.request.urlopen(req, timeout=15)
-        print(f"Saved {len(results)} results for {date_str} → HTTP {resp.status}")
+        print(f"Saved {len(merged_list)} results (merged) for {date_str} → HTTP {resp.status}")
     except urllib.error.HTTPError as e:
         body = e.read().decode()
         print(f"Supabase error {e.code}: {body}")
