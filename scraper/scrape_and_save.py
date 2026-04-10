@@ -58,8 +58,19 @@ def scrape(date_str=None):
     results = []
     seen_ids = set()
 
+    # Expected DD-MM from date_str (e.g. "10-04-2026" → "10-04")
+    expected_ddmm = date_str[:5]  # "DD-MM"
+
     for block in all_blocks:
         try:
+            # Validate block date against requested date — prevents storing
+            # yesterday's results under today's key when today has no draws yet
+            date_el = block.find("div", class_="session-date")
+            if date_el:
+                block_ddmm = date_el.get_text(strip=True)  # e.g. "10-04"
+                if block_ddmm != expected_ddmm:
+                    continue  # block belongs to a different day — skip
+
             title_el = block.find("a", "game-title")
             if not title_el:
                 continue
