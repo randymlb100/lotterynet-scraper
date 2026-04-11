@@ -29,6 +29,14 @@ LOTTERY_MAP = {
     "primera noche":         {"id": "16", "name": "Primera Noche"},
     "florida noche":         {"id": "17", "name": "Florida Noche"},
     "new york noche":        {"id": "18", "name": "New York Noche"},
+    # King Lottery (Dominican — appears on loteriasdominicanas.com)
+    "king lottery":          {"id": "23", "name": "King Lottery Día"},
+    "king lottery día":      {"id": "23", "name": "King Lottery Día"},
+    "king lottery 12:30":    {"id": "23", "name": "King Lottery Día"},
+    "quiniela día king":     {"id": "23", "name": "King Lottery Día"},
+    "king lottery noche":    {"id": "24", "name": "King Lottery Noche"},
+    "king lottery 7:30":     {"id": "24", "name": "King Lottery Noche"},
+    "quiniela noche king":   {"id": "24", "name": "King Lottery Noche"},
 }
 
 def fetch_blocks(url):
@@ -41,14 +49,19 @@ def fetch_blocks(url):
         print(f"Error fetching {url}: {e}")
         return []
 
+def get_rd_date_str():
+    """Fecha en hora RD (UTC-4) — igual que la app, independiente del timezone del servidor."""
+    return (datetime.datetime.utcnow() - datetime.timedelta(hours=4)).strftime("%d-%m-%Y")
+
 def scrape(date_str=None):
     if not date_str:
-        date_str = datetime.datetime.now().strftime("%d-%m-%Y")
+        date_str = get_rd_date_str()
 
     base = "https://loteriasdominicanas.com"
     urls = [
         f"{base}/?date={date_str}",
         f"{base}/anguila?date={date_str}",
+        f"{base}/king-lottery?date={date_str}",
     ]
 
     all_blocks = []
@@ -84,8 +97,74 @@ def scrape(date_str=None):
             print(f"Parse error: {e}")
             continue
 
+    # Fetch NJ Pick 3 and Pick 4 from NJ Lottery API
+    nj_results = fetch_nj_picks(date_str)
+    for r in nj_results:
+        if r["id"] not in seen_ids:
+            results.append(r)
+            seen_ids.add(r["id"])
+
     # Ordenar por id numérico
     results.sort(key=lambda x: int(x["id"]))
+    return results
+
+def fetch_nj_picks(date_str):
+    """Fetch NJ Pick 3 and Pick 4 results from NJ Lottery API."""
+    import urllib.parse
+    results = []
+    # Parse target date from DD-MM-YYYY
+    try:
+        parts = date_str.split("-")
+        target_date = f"{parts[2]}-{parts[1]}-{parts[0]}"  # → YYYY-MM-DD
+    except Exception:
+        target_date = None
+
+    games = [
+        {"gameId": "PICKING3", "id": "19", "name": "NJ Pick 3 Dia",   "digits": 3},
+        {"gameId": "PICK4",    "id": "21", "name": "NJ Pick 4 Dia",   "digits": 4},
+    ]
+    for game in games:
+        try:
+            url = f"https://www.njlottery.com/api/v1/draw-games/draws.json?gameId={game['gameId']}&numDraws=3"
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "Mozilla/5.0",
+                "Accept": "application/json",
+            })
+            resp = urllib.request.urlopen(req, timeout=10)
+            data = json.loads(resp.read().decode())
+            draws = data.get("draws") or data.get("DrawHistory") or []
+            for draw in (draws if isinstance(draws, list) else [draws]):
+                raw_date = draw.get("date") or draw.get("DrawDate") or draw.get("drawDate") or ""
+                # Normalize draw date to YYYY-MM-DD
+                draw_date = ""
+                if raw_date:
+                    raw_date_s = str(raw_date)[:10]
+                    # ISO already: 2026-04-10
+                    if len(raw_date_s) == 10 and raw_date_s[4] == "-":
+                        draw_date = raw_date_s
+                    # MM/DD/YYYY
+                    elif "/" in raw_date_s:
+                        dp = raw_date_s.split("/")
+                        if len(dp) == 3:
+                            draw_date = f"{dp[2]}-{dp[0].zfill(2)}-{dp[1].zfill(2)}"
+                if target_date and draw_date and draw_date != target_date:
+                    continue
+                num_raw = draw.get("winningNumbers") or draw.get("numbers") or draw.get("WinningNumbers") or ""
+                num_str = "".join(c for c in str(num_raw) if c.isdigit())
+                if len(num_str) < game["digits"]:
+                    continue
+                num_str = num_str[:game["digits"]]
+                number = "-".join(num_str)
+                results.append({
+                    "id":     game["id"],
+                    "name":   game["name"],
+                    "date":   date_str,
+                    "number": number,
+                })
+                print(f"  NJ API [{game['id']}] {game['name']}: {number}")
+                break
+        except Exception as e:
+            print(f"  NJ API error for {game['gameId']}: {e}")
     return results
 
 def fetch_existing_from_supabase(date_str):
@@ -149,7 +228,7 @@ def save_to_supabase(date_str, results):
         print(f"Supabase error {e.code}: {body}")
 
 if __name__ == "__main__":
-    today = datetime.datetime.now().strftime("%d-%m-%Y")
+    today = get_rd_date_str()
     print(f"Scraping {today}...")
     results = scrape(today)
     print(f"Found {len(results)} lotteries")
