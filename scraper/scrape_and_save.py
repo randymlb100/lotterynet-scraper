@@ -109,10 +109,10 @@ def scrape(date_str=None):
     return results
 
 def fetch_nj_picks(date_str):
-    """Fetch NJ Pick 3/4 Dia and Noche results from NJ Lottery API.
-    The API stores drawTime in local NJ time (treated as UTC) so converting
-    as UTC gives the NJ local date, matching the RD date (also UTC-4/EDT).
-    Each gameName can appear twice per day: earlier draw = Dia, later = Noche.
+    """Fetch NJ Pick 3/4 Evening (Noche) results from NJ Lottery API.
+    The API returns ONE draw per game per day — the Evening draw.
+    drawTime is stored as midnight EDT (04:00 UTC) of the draw date.
+    Midday results are not available from this API.
     """
     results = []
     try:
@@ -121,20 +121,12 @@ def fetch_nj_picks(date_str):
     except Exception:
         target_date_iso = None
 
-    # Two variants per game: index 0 = Dia (earlier draw), index 1 = Noche (later draw)
-    game_variants = {
-        "Pick 3": [
-            {"id": "19", "name": "NJ Pick 3 Dia",   "digits": 3},
-            {"id": "20", "name": "NJ Pick 3 Noche",  "digits": 3},
-        ],
-        "Pick 4": [
-            {"id": "21", "name": "NJ Pick 4 Dia",   "digits": 4},
-            {"id": "22", "name": "NJ Pick 4 Noche",  "digits": 4},
-        ],
+    # API returns only the Evening draw per game per day
+    game_map = {
+        "Pick 3": {"id": "20", "name": "NJ Pick 3 Noche", "digits": 3},
+        "Pick 4": {"id": "22", "name": "NJ Pick 4 Noche", "digits": 4},
     }
-
-    # Collect draws for target date, grouped by gameName
-    game_draws = {"Pick 3": [], "Pick 4": []}
+    found_ids = set()
 
     try:
         url = "https://www.njlottery.com/api/v1/draw-games/draws.json?numDraws=20"
@@ -148,59 +140,54 @@ def fetch_nj_picks(date_str):
 
         for draw in draws:
             game_name = draw.get("gameName", "")
-            if game_name not in game_variants:
+            if game_name not in game_map:
                 continue
             draw_ts = draw.get("drawTime")
             if not draw_ts:
                 continue
-            # drawTime is stored as local NJ time — convert "as UTC" to get NJ local date
+            # drawTime = midnight EDT (04:00 UTC) of the NJ local draw date
             draw_date_iso = datetime.datetime.fromtimestamp(
                 draw_ts / 1000, tz=datetime.timezone.utc
             ).strftime("%Y-%m-%d")
             if target_date_iso and draw_date_iso != target_date_iso:
                 continue
-            game_draws[game_name].append(draw)
+            game = game_map[game_name]
+            if game["id"] in found_ids:
+                continue
 
-        # Sort each group ascending by drawTime: first = Dia, second = Noche
-        for game_name, draw_list in game_draws.items():
-            draw_list.sort(key=lambda d: d.get("drawTime", 0))
-            variants = game_variants[game_name]
-            for i, draw in enumerate(draw_list):
-                if i >= len(variants):
-                    break
-                game = variants[i]
-                digits = game["digits"]
-                draw_results = draw.get("results") or []
-                plain_num = None
-                # Find the entry with exactly 1 pure-digit element of correct length
+            digits = game["digits"]
+            draw_results = draw.get("results") or []
+            plain_num = None
+            # Find the entry with exactly 1 pure-digit element of correct length
+            for res in draw_results:
+                p = res.get("primary") or []
+                if len(p) == 1:
+                    s = "".join(c for c in str(p[0]) if c.isdigit())
+                    if len(s) == digits:
+                        plain_num = s
+                        break
+            # Fallback: any pure-digit entry of correct length
+            if not plain_num:
                 for res in draw_results:
-                    p = res.get("primary") or []
-                    if len(p) == 1:
-                        s = "".join(c for c in str(p[0]) if c.isdigit())
+                    for entry in (res.get("primary") or []):
+                        s = "".join(c for c in str(entry) if c.isdigit())
                         if len(s) == digits:
                             plain_num = s
                             break
-                # Fallback: any pure-digit entry of correct length
-                if not plain_num:
-                    for res in draw_results:
-                        for entry in (res.get("primary") or []):
-                            s = "".join(c for c in str(entry) if c.isdigit())
-                            if len(s) == digits:
-                                plain_num = s
-                                break
-                        if plain_num:
-                            break
-                if not plain_num or len(plain_num) < digits:
-                    continue
-                plain_num = plain_num[:digits]
-                number = "-".join(plain_num)
-                results.append({
-                    "id":     game["id"],
-                    "name":   game["name"],
-                    "date":   date_str,
-                    "number": number,
-                })
-                print(f"  NJ API [{game['id']}] {game['name']}: {number}")
+                    if plain_num:
+                        break
+            if not plain_num or len(plain_num) < digits:
+                continue
+            plain_num = plain_num[:digits]
+            number = "-".join(plain_num)
+            results.append({
+                "id":     game["id"],
+                "name":   game["name"],
+                "date":   date_str,
+                "number": number,
+            })
+            print(f"  NJ API [{game['id']}] {game['name']}: {number}")
+            found_ids.add(game["id"])
 
     except Exception as e:
         print(f"  NJ API error: {e}")
