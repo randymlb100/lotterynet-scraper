@@ -3,8 +3,8 @@ name: Scrape Lottery Results
 on:
   schedule:
     # Cada 10 minutos
-    - cron: '*/10 * * * *'
-  workflow_dispatch:  # También ejecutable manualmente
+    - cron: "*/10 * * * *"
+  workflow_dispatch: # También ejecutable manualmente
 
 jobs:
   scrape:
@@ -15,7 +15,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install dependencies
         run: pip install beautifulsoup4
@@ -24,4 +24,5 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
         run: python scraper/scrape_and_save.py
