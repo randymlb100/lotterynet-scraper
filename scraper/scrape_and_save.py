@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://unhoulkujbtsypccpirc.supabase.co")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
+RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY", "")
 
 # Mapa: nombre en loteriasdominicanas.com → id de lotería en la app
 LOTTERY_MAP = {
@@ -97,9 +98,16 @@ def scrape(date_str=None):
             print(f"Parse error: {e}")
             continue
 
-    # Fetch NJ Pick 3 and Pick 4 from NJ Lottery API
+    # Fetch NJ Pick 3/4 Evening (Noche) from NJ Lottery API
     nj_results = fetch_nj_picks(date_str)
     for r in nj_results:
+        if r["id"] not in seen_ids:
+            results.append(r)
+            seen_ids.add(r["id"])
+
+    # Fetch NJ Pick 3/4 Midday (Día) from RapidAPI
+    nj_midday = fetch_nj_picks_midday(date_str)
+    for r in nj_midday:
         if r["id"] not in seen_ids:
             results.append(r)
             seen_ids.add(r["id"])
@@ -193,6 +201,77 @@ def fetch_nj_picks(date_str):
         print(f"  NJ API error: {e}")
 
     return results
+
+def fetch_nj_picks_midday(date_str):
+    """Fetch NJ Pick 3/4 Midday (Día) from RapidAPI USA Lottery.
+    Two-step: (1) past-draws-dates to get drawID, (2) game-result for numbers.
+    gameID 283 = Pick-3 Midday (id 19), gameID 285 = Pick-4 Midday (id 21).
+    """
+    if not RAPIDAPI_KEY:
+        print("  RapidAPI: no RAPIDAPI_KEY — skipping NJ midday")
+        return []
+
+    results = []
+    try:
+        parts = date_str.split("-")
+        target_date_iso = f"{parts[2]}-{parts[1]}-{parts[0]}"
+    except Exception:
+        return []
+
+    game_map = {
+        283: {"id": "19", "name": "NJ Pick 3 Día", "digits": 3},
+        285: {"id": "21", "name": "NJ Pick 4 Día", "digits": 4},
+    }
+    headers = {
+        "x-rapidapi-host": "usa-lottery-result-all-state-api.p.rapidapi.com",
+        "x-rapidapi-key":  RAPIDAPI_KEY,
+        "User-Agent": "Mozilla/5.0",
+    }
+
+    for game_id, game in game_map.items():
+        try:
+            # Step 1: get drawID for target date
+            url1 = (
+                "https://usa-lottery-result-all-state-api.p.rapidapi.com"
+                f"/lottery-results/past-draws-dates?gameID={game_id}"
+            )
+            req1 = urllib.request.Request(url1, headers=headers)
+            data1 = json.loads(urllib.request.urlopen(req1, timeout=10).read().decode())
+            dates_list = (data1.get("data") or {}).get("date") or []
+            draw_id = None
+            for entry in dates_list:
+                if entry.get("drawDate") == target_date_iso:
+                    draw_id = entry.get("drawID")
+                    break
+            if not draw_id:
+                print(f"  RapidAPI: no drawID for {game['name']} on {target_date_iso}")
+                continue
+
+            # Step 2: get the actual winning numbers
+            url2 = (
+                "https://usa-lottery-result-all-state-api.p.rapidapi.com"
+                f"/lottery-results/game-result?gameID={game_id}&drawID={draw_id}"
+            )
+            req2 = urllib.request.Request(url2, headers=headers)
+            data2 = json.loads(urllib.request.urlopen(req2, timeout=10).read().decode())
+            nums = (data2.get("data") or {}).get("winningNumbers") or []
+            if len(nums) != game["digits"]:
+                print(f"  RapidAPI: unexpected numbers {nums} for {game['name']}")
+                continue
+
+            number = "-".join(str(n) for n in nums)
+            results.append({
+                "id":     game["id"],
+                "name":   game["name"],
+                "date":   date_str,
+                "number": number,
+            })
+            print(f"  RapidAPI [{game['id']}] {game['name']}: {number}")
+        except Exception as e:
+            print(f"  RapidAPI error for {game['name']}: {e}")
+
+    return results
+
 
 def fetch_existing_from_supabase(date_str):
     """Fetch previously saved results for the given date so we can merge."""
