@@ -109,62 +109,93 @@ def scrape(date_str=None):
     return results
 
 def fetch_nj_picks(date_str):
-    """Fetch NJ Pick 3 and Pick 4 results from NJ Lottery API."""
-    import urllib.parse
+    """Fetch NJ Pick 3 and Pick 4 results from NJ Lottery API.
+    The API returns all games in one response, ignoring gameId param.
+    The plain draw number is in the results entry whose primary has exactly 1 pure-digit element.
+    Date is in drawTime (Unix ms, UTC).
+    """
     results = []
-    # Parse target date from DD-MM-YYYY
+    # Convert DD-MM-YYYY → YYYY-MM-DD for comparison with drawTime dates
     try:
         parts = date_str.split("-")
-        target_date = f"{parts[2]}-{parts[1]}-{parts[0]}"  # → YYYY-MM-DD
+        target_date_iso = f"{parts[2]}-{parts[1]}-{parts[0]}"
     except Exception:
-        target_date = None
+        target_date_iso = None
 
-    games = [
-        {"gameId": "PICKING3", "id": "19", "name": "NJ Pick 3 Dia",   "digits": 3},
-        {"gameId": "PICK4",    "id": "21", "name": "NJ Pick 4 Dia",   "digits": 4},
-    ]
-    for game in games:
-        try:
-            url = f"https://www.njlottery.com/api/v1/draw-games/draws.json?gameId={game['gameId']}&numDraws=3"
-            req = urllib.request.Request(url, headers={
-                "User-Agent": "Mozilla/5.0",
-                "Accept": "application/json",
+    game_map = {
+        "Pick 3": {"id": "19", "name": "NJ Pick 3 Dia", "digits": 3},
+        "Pick 4": {"id": "21", "name": "NJ Pick 4 Dia", "digits": 4},
+    }
+    found = set()
+
+    try:
+        url = "https://www.njlottery.com/api/v1/draw-games/draws.json?numDraws=6"
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "application/json",
+        })
+        resp = urllib.request.urlopen(req, timeout=10)
+        data = json.loads(resp.read().decode())
+        draws = data.get("draws") or []
+
+        for draw in draws:
+            game_name = draw.get("gameName", "")
+            if game_name not in game_map or game_name in found:
+                continue
+            game = game_map[game_name]
+
+            # Date from drawTime (Unix ms UTC)
+            draw_ts = draw.get("drawTime")
+            if not draw_ts:
+                continue
+            draw_date_iso = datetime.datetime.fromtimestamp(
+                draw_ts / 1000, tz=datetime.timezone.utc
+            ).strftime("%Y-%m-%d")
+
+            if target_date_iso and draw_date_iso != target_date_iso:
+                continue
+
+            # Find the results entry whose primary has exactly 1 pure-digit element
+            # of the correct length — that is always the plain draw without fireball.
+            # The index (0 or 1) varies depending on the API numDraws param.
+            draw_results = draw.get("results") or []
+            plain_num = None
+            digits = game["digits"]
+            for res in draw_results:
+                p = res.get("primary") or []
+                if len(p) == 1:
+                    s = "".join(c for c in str(p[0]) if c.isdigit())
+                    if len(s) == digits:
+                        plain_num = s
+                        break
+            # Fallback: any pure-digit entry of correct length
+            if not plain_num:
+                for res in draw_results:
+                    for entry in (res.get("primary") or []):
+                        s = "".join(c for c in str(entry) if c.isdigit())
+                        if len(s) == digits:
+                            plain_num = s
+                            break
+                    if plain_num:
+                        break
+
+            if not plain_num or len(plain_num) < game["digits"]:
+                continue
+
+            plain_num = plain_num[:game["digits"]]
+            number = "-".join(plain_num)
+            results.append({
+                "id":     game["id"],
+                "name":   game["name"],
+                "date":   date_str,
+                "number": number,
             })
-            resp = urllib.request.urlopen(req, timeout=10)
-            data = json.loads(resp.read().decode())
-            draws = data.get("draws") or data.get("DrawHistory") or []
-            for draw in (draws if isinstance(draws, list) else [draws]):
-                raw_date = draw.get("date") or draw.get("DrawDate") or draw.get("drawDate") or ""
-                # Normalize draw date to YYYY-MM-DD
-                draw_date = ""
-                if raw_date:
-                    raw_date_s = str(raw_date)[:10]
-                    # ISO already: 2026-04-10
-                    if len(raw_date_s) == 10 and raw_date_s[4] == "-":
-                        draw_date = raw_date_s
-                    # MM/DD/YYYY
-                    elif "/" in raw_date_s:
-                        dp = raw_date_s.split("/")
-                        if len(dp) == 3:
-                            draw_date = f"{dp[2]}-{dp[0].zfill(2)}-{dp[1].zfill(2)}"
-                if target_date and draw_date and draw_date != target_date:
-                    continue
-                num_raw = draw.get("winningNumbers") or draw.get("numbers") or draw.get("WinningNumbers") or ""
-                num_str = "".join(c for c in str(num_raw) if c.isdigit())
-                if len(num_str) < game["digits"]:
-                    continue
-                num_str = num_str[:game["digits"]]
-                number = "-".join(num_str)
-                results.append({
-                    "id":     game["id"],
-                    "name":   game["name"],
-                    "date":   date_str,
-                    "number": number,
-                })
-                print(f"  NJ API [{game['id']}] {game['name']}: {number}")
-                break
-        except Exception as e:
-            print(f"  NJ API error for {game['gameId']}: {e}")
+            print(f"  NJ API [{game['id']}] {game['name']}: {number}")
+            found.add(game_name)
+
+    except Exception as e:
+        print(f"  NJ API error: {e}")
+
     return results
 
 def fetch_existing_from_supabase(date_str):
