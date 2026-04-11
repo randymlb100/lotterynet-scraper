@@ -39,6 +39,10 @@ LOTTERY_MAP = {
     "primera noche": {"id": "16", "name": "Primera Noche"},
     "florida noche": {"id": "17", "name": "Florida Noche"},
     "new york noche": {"id": "18", "name": "New York Noche"},
+    "king lottery 12:30": {"id": "23", "name": "King Lottery Día"},
+    "king lottery dia": {"id": "23", "name": "King Lottery Día"},
+    "king lottery 7:30": {"id": "24", "name": "King Lottery Noche"},
+    "king lottery noche": {"id": "24", "name": "King Lottery Noche"},
 }
 
 NJ_PICK_MAP = {
@@ -309,7 +313,11 @@ def scrape(date_str=None):
         date_str = get_dr_date_str()
 
     base = "https://loteriasdominicanas.com"
-    urls = [f"{base}/?date={date_str}", f"{base}/anguila?date={date_str}"]
+    urls = [
+        f"{base}/?date={date_str}",
+        f"{base}/anguila?date={date_str}",
+        f"{base}/king-lottery?date={date_str}",
+    ]
     all_blocks = []
     for url in urls:
         all_blocks.extend(fetch_blocks(url))
