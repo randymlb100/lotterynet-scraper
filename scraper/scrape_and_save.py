@@ -1,314 +1,221 @@
 """
-LotteryNet RD - Scraper -> Supabase
-Scrapea loteriasdominicanas.com y guarda en lotterynet_kv.
+LotteryNet RD — Scraper → Supabase
+Scrapea loteriasdominicanas.com y guarda en lotterynet_kv
 key: lot_results_cache_by_day
 """
-
-import datetime
-import json
-import os
-import re
-import urllib.error
-import urllib.request
-
+import os, json, datetime, urllib.request, urllib.parse, re
 from bs4 import BeautifulSoup
 
-
-SUPABASE_URL = os.environ.get(
-    "SUPABASE_URL", "https://unhoulkujbtsypccpirc.supabase.co"
-)
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://unhoulkujbtsypccpirc.supabase.co")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
-RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY", "")
 
+# Mapa: nombre en loteriasdominicanas.com → id de lotería en la app
 LOTTERY_MAP = {
-    "la primera día": {"id": "1", "name": "La Primera Día"},
-    "anguila mañana": {"id": "2", "name": "Anguila Mañana"},
-    "la suerte 12:30": {"id": "3", "name": "La Suerte 12:30"},
-    "anguila medio día": {"id": "4", "name": "Anguila Mediodía"},
-    "quiniela real": {"id": "5", "name": "Quiniela Real"},
-    "florida día": {"id": "6", "name": "Florida Día"},
-    "quiniela lotedom": {"id": "7", "name": "Quiniela LoteDom"},
-    "new york tarde": {"id": "8", "name": "New York Tarde"},
-    "gana más": {"id": "9", "name": "Gana Más"},
-    "la suerte 18:00": {"id": "10", "name": "La Suerte Tarde"},
-    "anguila tarde": {"id": "11", "name": "Anguila Tarde"},
-    "quiniela loteka": {"id": "12", "name": "Quiniela Loteka"},
-    "lotería nacional": {"id": "13", "name": "Lotería Nacional"},
-    "anguila noche": {"id": "14", "name": "Anguila Noche"},
-    "quiniela leidsa": {"id": "15", "name": "Quiniela Leidsa"},
-    "primera noche": {"id": "16", "name": "Primera Noche"},
-    "florida noche": {"id": "17", "name": "Florida Noche"},
-    "new york noche": {"id": "18", "name": "New York Noche"},
-    "king lottery 12:30": {"id": "23", "name": "King Lottery Día"},
-    "king lottery dia": {"id": "23", "name": "King Lottery Día"},
-    "king lottery 7:30": {"id": "24", "name": "King Lottery Noche"},
-    "king lottery noche": {"id": "24", "name": "King Lottery Noche"},
+    "la primera día":        {"id": "1",  "name": "La Primera Día"},
+    "anguila mañana":        {"id": "2",  "name": "Anguila Mañana"},
+    "la suerte 12:30":       {"id": "3",  "name": "La Suerte 12:30"},
+    "anguila medio día":     {"id": "4",  "name": "Anguila Mediodía"},
+    "quiniela real":         {"id": "5",  "name": "Quiniela Real"},
+    "florida día":           {"id": "6",  "name": "Florida Día"},
+    "quiniela lotedom":      {"id": "7",  "name": "Quiniela LoteDom"},
+    "new york tarde":        {"id": "8",  "name": "New York Tarde"},
+    "gana más":              {"id": "9",  "name": "Gana Más"},
+    "la suerte 18:00":       {"id": "10", "name": "La Suerte Tarde"},
+    "anguila tarde":         {"id": "11", "name": "Anguila Tarde"},
+    "quiniela loteka":       {"id": "12", "name": "Quiniela Loteka"},
+    "lotería nacional":      {"id": "13", "name": "Lotería Nacional"},
+    "anguila noche":         {"id": "14", "name": "Anguila Noche"},
+    "quiniela leidsa":       {"id": "15", "name": "Quiniela Leidsa"},
+    "primera noche":         {"id": "16", "name": "Primera Noche"},
+    "florida noche":         {"id": "17", "name": "Florida Noche"},
+    "new york noche":        {"id": "18", "name": "New York Noche"},
+    "king lottery 12:30":    {"id": "23", "name": "King Lottery Día"},
+    "king lottery 7:30":     {"id": "24", "name": "King Lottery Noche"},
 }
 
-NJ_PICK_MAP = {
-    "PICK-3": [
-        {"draw_time": "midday", "id": "19", "name": "NJ Pick 3 Dia", "digits": 3},
-        {"draw_time": "evening", "id": "20", "name": "NJ Pick 3 Noche", "digits": 3},
-    ],
-    "PICK-4": [
-        {"draw_time": "midday", "id": "21", "name": "NJ Pick 4 Dia", "digits": 4},
-        {"draw_time": "evening", "id": "22", "name": "NJ Pick 4 Noche", "digits": 4},
-    ],
+MILOTERIA_NJ_MAP = {
+    "new jersey am": {"id": "25", "name": "New Jersey AM"},
+    "new jersey pm": {"id": "26", "name": "New Jersey PM"},
 }
 
-LP_GAME_MAP = {
-    "pick 3 midday": {"id": "19", "name": "NJ Pick 3 Dia", "digits": 3},
-    "pick-3 midday": {"id": "19", "name": "NJ Pick 3 Dia", "digits": 3},
-    "pick 3 evening": {"id": "20", "name": "NJ Pick 3 Noche", "digits": 3},
-    "pick-3 evening": {"id": "20", "name": "NJ Pick 3 Noche", "digits": 3},
-    "pick 4 midday": {"id": "21", "name": "NJ Pick 4 Dia", "digits": 4},
-    "pick-4 midday": {"id": "21", "name": "NJ Pick 4 Dia", "digits": 4},
-    "pick 4 evening": {"id": "22", "name": "NJ Pick 4 Noche", "digits": 4},
-    "pick-4 evening": {"id": "22", "name": "NJ Pick 4 Noche", "digits": 4},
-}
+AUTHORITATIVE_NJ_IDS = {"19", "20", "21", "22", "25", "26"}
 
+def get_dr_now():
+    """Current Dominican Republic time (AST / UTC-4)."""
+    return datetime.datetime.utcnow() - datetime.timedelta(hours=4)
 
 def get_et_date_str():
+    """Today's date in Eastern Time (UTC-4, approximation valid for ET)."""
     et = datetime.datetime.utcnow() - datetime.timedelta(hours=4)
     return et.strftime("%d-%m-%Y")
 
-
 def get_dr_date_str():
-    dr = datetime.datetime.utcnow() - datetime.timedelta(hours=4)
-    return dr.strftime("%d-%m-%Y")
+    """Today's date in Dominican Republic / Atlantic Standard Time (UTC-4)."""
+    return get_dr_now().strftime("%d-%m-%Y")
+
+def get_dr_date_str_for_offset(days_ago):
+    """Date string in DR time for today/ayer/antes de ayer style backfills."""
+    return (get_dr_now() - datetime.timedelta(days=int(days_ago))).strftime("%d-%m-%Y")
 
 
-def fetch_url(url, headers=None, timeout=15):
+def parse_miloteria_date(raw):
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    months = {
+        "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+        "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+    }
+    match = re.search(r"\b([A-Za-z]{3})\s+(\d{1,2}),\s*(\d{4})\b", text)
+    if not match:
+        return ""
+    month = months.get(match.group(1).lower())
+    if not month:
+        return ""
+    day = int(match.group(2))
+    year = int(match.group(3))
+    return f"{day:02d}-{month:02d}-{year}"
+
+def parse_lotteryusa_date(raw):
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = datetime.datetime.strptime(text, "%b %d, %Y")
+    except ValueError:
+        return ""
+    return parsed.strftime("%d-%m-%Y")
+
+
+def fetch_lotteryusa_results(url, lottery_id, lottery_name, digits, target_date):
     req = urllib.request.Request(
         url,
-        headers=headers or {"User-Agent": "Mozilla/5.0"},
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
     )
-    return urllib.request.urlopen(req, timeout=timeout)
-
-
-def scrape_nj_lotterypost(date_str=None):
-    et_date_str = date_str or get_et_date_str()
-    url = "https://www.lotterypost.com/results/nj"
     try:
-        html = fetch_url(
-            url,
-            headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36"
-                ),
-                "Accept": "text/html,application/xhtml+xml",
-            },
-        ).read()
-        soup = BeautifulSoup(html, "html.parser")
-    except Exception as exc:
-        print(f"  lotterypost.com error: {exc}")
-        return []
+        html = urllib.request.urlopen(req, timeout=20).read()
+    except Exception as e:
+        print(f"  Lottery USA error for {lottery_name}: {e}")
+        return None
 
-    results = []
-    seen = set()
-    single_digit_re = re.compile(r"^(\d)$")
-    for tr in soup.find_all("tr"):
-        tr_text = tr.get_text(" ", strip=True).lower()
-        matched = None
-        for key, cfg in LP_GAME_MAP.items():
-            if key in tr_text and cfg["id"] not in seen:
-                matched = cfg
-                break
-        if not matched:
+    soup = BeautifulSoup(html, "html.parser")
+    for row in soup.select("tbody#js-state-results-table tr.c-draw-card"):
+        date_el = row.select_one(".c-draw-card__draw-date-sub")
+        draw_date = parse_lotteryusa_date(date_el.get_text(" ", strip=True) if date_el else "")
+        if draw_date != target_date:
             continue
-        balls = [
-            el.get_text(strip=True)
-            for el in tr.find_all(["td", "li", "span"])
-            if single_digit_re.match(el.get_text(strip=True))
-        ]
-        if len(balls) >= matched["digits"]:
-            parsed = "-".join(balls[: matched["digits"]])
-            results.append(
-                {
-                    "id": matched["id"],
-                    "name": matched["name"],
-                    "date": et_date_str,
-                    "number": parsed,
-                }
-            )
-            seen.add(matched["id"])
-            print(f"  lotterypost [{matched['id']}] {matched['name']}: {parsed}")
+
+        balls = []
+        for ball in row.select("li.c-ball"):
+            classes = ball.get("class") or []
+            if "c-ball--fire" in classes:
+                continue
+            value = ball.get_text(strip=True)
+            if value:
+                balls.append(value)
+
+        if len(balls) < digits:
+            print(f"  Lottery USA: incomplete row for {lottery_name} on {target_date}")
+            return None
+
+        number = "-".join(balls[:digits])
+        print(f"  Lottery USA [{lottery_id}] {lottery_name}: {number}")
+        return {
+            "id": lottery_id,
+            "name": lottery_name,
+            "date": target_date,
+            "number": number,
+        }
+
+    print(f"  Lottery USA: no result for {lottery_name} on {target_date}")
+    return None
+
+
+def fetch_nj_picks_lotteryusa(date_str=None):
+    """Fetch NJ Pick 3/4 Dia y Noche from Lottery USA pages."""
+    target_date = date_str or get_et_date_str()
+    sources = [
+        ("https://www.lotteryusa.com/new-jersey/midday-pick-3/", "19", "NJ Pick 3 Día", 3),
+        ("https://www.lotteryusa.com/new-jersey/pick-3/", "20", "NJ Pick 3 Noche", 3),
+        ("https://www.lotteryusa.com/new-jersey/midday-pick-4/", "21", "NJ Pick 4 Día", 4),
+        ("https://www.lotteryusa.com/new-jersey/pick-4/", "22", "NJ Pick 4 Noche", 4),
+    ]
+    results = []
+    for url, lottery_id, lottery_name, digits in sources:
+        row = fetch_lotteryusa_results(url, lottery_id, lottery_name, digits, target_date)
+        if row:
+            results.append(row)
     return results
 
 
-def fetch_nj_picks_midday(date_str):
-    """Fetch NJ Pick 3/4 midday results from RapidAPI AllState."""
-    if not RAPIDAPI_KEY:
-        print("  RapidAPI: no RAPIDAPI_KEY - skipping NJ midday")
-        return []
-
+def fetch_miloteria_new_jersey(date_str=None):
+    """Fetch New Jersey AM/PM quiniela-style results from MiLoteria."""
+    target_date = date_str or get_dr_date_str()
+    payload = urllib.parse.urlencode({
+        "zonaHorariaUsuario": "America/Santo_Domingo"
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://www.miloteria.net/api/v1/draws.php",
+        data=payload,
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+        },
+        method="POST",
+    )
     try:
-        day, month, year = date_str.split("-")
-        target_date_iso = f"{year}-{month}-{day}"
-    except ValueError:
+        raw = urllib.request.urlopen(req, timeout=20).read().decode("utf-8")
+        data = json.loads(raw)
+    except Exception as e:
+        print(f"  MiLoteria NJ error: {e}")
         return []
 
-    headers = {
-        "x-rapidapi-host": "usa-lottery-result-all-state-api.p.rapidapi.com",
-        "x-rapidapi-key": RAPIDAPI_KEY,
-        "User-Agent": "Mozilla/5.0",
-    }
-    game_map = {
-        283: {"id": "19", "name": "NJ Pick 3 Dia", "digits": 3},
-        285: {"id": "21", "name": "NJ Pick 4 Dia", "digits": 4},
-    }
     results = []
-
-    for game_id, game in game_map.items():
-        try:
-            draws_url = (
-                "https://usa-lottery-result-all-state-api.p.rapidapi.com"
-                f"/lottery-results/past-draws-dates?gameID={game_id}"
-            )
-            draws_req = urllib.request.Request(draws_url, headers=headers)
-            draws_data = json.loads(urllib.request.urlopen(draws_req, timeout=10).read().decode())
-            dates_list = (draws_data.get("data") or {}).get("date") or []
-
-            draw_id = None
-            for entry in dates_list:
-                if entry.get("drawDate") == target_date_iso:
-                    draw_id = entry.get("drawID")
-                    break
-            if not draw_id:
-                print(f"  RapidAPI: no drawID for {game['name']} on {target_date_iso}")
-                continue
-
-            result_url = (
-                "https://usa-lottery-result-all-state-api.p.rapidapi.com"
-                f"/lottery-results/game-result?gameID={game_id}&drawID={draw_id}"
-            )
-            result_req = urllib.request.Request(result_url, headers=headers)
-            result_data = json.loads(urllib.request.urlopen(result_req, timeout=10).read().decode())
-            winning_numbers = (result_data.get("data") or {}).get("winningNumbers") or []
-            digits = [str(n).zfill(1) for n in winning_numbers]
-            if len(digits) != game["digits"]:
-                print(f"  RapidAPI: unexpected numbers {winning_numbers} for {game['name']}")
-                continue
-
-            parsed = "-".join(digits)
-            results.append(
-                {
-                    "id": game["id"],
-                    "name": game["name"],
-                    "date": date_str,
-                    "number": parsed,
-                }
-            )
-            print(f"  RapidAPI [{game['id']}] {game['name']}: {parsed}")
-        except Exception as exc:
-            print(f"  RapidAPI error for {game['name']}: {exc}")
-
-    return results
-
-
-def scrape_nj_picks(date_str=None):
-    et_date_str = date_str or get_et_date_str()
-    parts = et_date_str.split("-")
-    iso_date = f"{parts[2]}-{parts[1]}-{parts[0]}"
-    results = []
-    seen_ids = set()
-
-    for game_id, draw_configs in NJ_PICK_MAP.items():
-        url = (
-            "https://www.njlottery.com/api/v1/draw-games/draws.json"
-            f"?gameId={game_id}&numDraws=4"
-        )
-        try:
-            resp = fetch_url(
-                url,
-                headers={
-                    "User-Agent": "Mozilla/5.0 (compatible)",
-                    "Accept": "application/json",
-                },
-            )
-            data = json.loads(resp.read().decode())
-            draws_list = (
-                data.get("draws")
-                or (data.get("drawGames") or {}).get("draws")
-                or data.get("draw")
-                or []
-            )
-            if not isinstance(draws_list, list):
-                draws_list = []
-
-            for cfg in draw_configs:
-                if cfg["id"] in seen_ids:
-                    continue
-                for draw in draws_list:
-                    draw_date = str(draw.get("drawDate", "")).split("T")[0]
-                    draw_time_raw = str(
-                        draw.get("gameTimeType") or draw.get("drawTime") or ""
-                    ).lower()
-                    if draw_date == iso_date and cfg["draw_time"] in draw_time_raw:
-                        numbers_raw = str(
-                            draw.get("numbers")
-                            or draw.get("winningNumbers")
-                            or draw.get("number")
-                            or ""
-                        )
-                        digits = re.findall(r"\d", numbers_raw)
-                        if len(digits) == cfg["digits"]:
-                            parsed = "-".join(digits)
-                            results.append(
-                                {
-                                    "id": cfg["id"],
-                                    "name": cfg["name"],
-                                    "date": et_date_str,
-                                    "number": parsed,
-                                }
-                            )
-                            seen_ids.add(cfg["id"])
-                            print(f"  NJ API [{cfg['id']}] {cfg['name']}: {parsed}")
-                            break
-        except Exception as exc:
-            print(f"  NJ API error for {game_id}: {exc}")
-
-    missing = [
-        cfg
-        for configs in NJ_PICK_MAP.values()
-        for cfg in configs
-        if cfg["id"] not in seen_ids
-    ]
-    midday_ids = {"19", "21"}
-    if any(cfg["id"] in midday_ids for cfg in missing):
-        for row in fetch_nj_picks_midday(et_date_str):
-            if row["id"] not in seen_ids:
-                results.append(row)
-                seen_ids.add(row["id"])
-
-    missing = [
-        cfg
-        for configs in NJ_PICK_MAP.values()
-        for cfg in configs
-        if cfg["id"] not in seen_ids
-    ]
-    if missing:
-        print(f"  NJ API missing {len(missing)} draws - trying lotterypost.com...")
-        for row in scrape_nj_lotterypost(et_date_str):
-            if row["id"] not in seen_ids:
-                results.append(row)
-                seen_ids.add(row["id"])
-
+    for draw in data if isinstance(data, list) else []:
+        nombre = str(draw.get("nombre", "")).strip().lower()
+        match = MILOTERIA_NJ_MAP.get(nombre)
+        if not match:
+            continue
+        result = draw.get("result") or {}
+        result_date = parse_miloteria_date(result.get("date"))
+        if result_date != target_date:
+            continue
+        numbers = [
+            str(result.get("first", "")).strip(),
+            str(result.get("second", "")).strip(),
+            str(result.get("third", "")).strip(),
+        ]
+        numbers = [n for n in numbers if n]
+        if len(numbers) < 3:
+            continue
+        row = {
+            "id": match["id"],
+            "name": match["name"],
+            "date": target_date,
+            "number": "-".join(numbers[:3]),
+        }
+        results.append(row)
+        print(f"  MiLoteria [{row['id']}] {row['name']}: {row['number']}")
     return results
 
 
 def fetch_blocks(url):
     try:
-        html = fetch_url(url).read()
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        html = urllib.request.urlopen(req, timeout=15).read()
         soup = BeautifulSoup(html, "html.parser")
         return soup.find_all("div", class_="game-block")
-    except Exception as exc:
-        print(f"Error fetching {url}: {exc}")
+    except Exception as e:
+        print(f"Error fetching {url}: {e}")
         return []
 
-
 def scrape(date_str=None):
+    # Use Dominican Republic time (UTC-4) as default to avoid midnight UTC
+    # causing evening lottery results to be discarded on the wrong date
     if not date_str:
         date_str = get_dr_date_str()
 
@@ -318,54 +225,71 @@ def scrape(date_str=None):
         f"{base}/anguila?date={date_str}",
         f"{base}/king-lottery?date={date_str}",
     ]
+
     all_blocks = []
     for url in urls:
         all_blocks.extend(fetch_blocks(url))
 
     results = []
     seen_ids = set()
-    expected_ddmm = date_str[:5]
+
+    # Expected DD-MM from date_str (e.g. "10-04-2026" → "10-04")
+    expected_ddmm = date_str[:5]  # "DD-MM"
 
     for block in all_blocks:
         try:
+            # Validate block date against requested date — prevents storing
+            # yesterday's results under today's key when today has no draws yet
             date_el = block.find("div", class_="session-date")
-            if date_el and date_el.get_text(strip=True) != expected_ddmm:
-                continue
+            if date_el:
+                block_ddmm = date_el.get_text(strip=True)  # e.g. "10-04"
+                if block_ddmm != expected_ddmm:
+                    continue  # block belongs to a different day — skip
 
             title_el = block.find("a", "game-title")
             if not title_el:
                 continue
-
-            title = title_el.get_text().strip().lower()
+            title = title_el.getText().strip().lower()
             match = LOTTERY_MAP.get(title)
             if not match or match["id"] in seen_ids:
                 continue
 
             scores = block.find_all("span", "score")
-            numbers = [score.text.strip() for score in scores if score.text.strip()]
+            numbers = [s.text.strip() for s in scores if s.text.strip()]
             if not numbers:
                 continue
 
-            results.append(
-                {
-                    "id": match["id"],
-                    "name": match["name"],
-                    "date": date_str,
-                    "number": "-".join(numbers),
-                }
-            )
+            results.append({
+                "id":     match["id"],
+                "name":   match["name"],
+                "date":   date_str,          # siempre DD-MM-YYYY del param, no del DOM
+                "number": "-".join(numbers)  # "01-23-4" — formato que lee la app
+            })
             seen_ids.add(match["id"])
-        except Exception as exc:
-            print(f"Parse error: {exc}")
+        except Exception as e:
+            print(f"Parse error: {e}")
+            continue
 
-    results.sort(key=lambda row: int(row["id"]))
+    nj_rows = fetch_nj_picks_lotteryusa(date_str)
+    for row in nj_rows:
+        if row["id"] not in seen_ids:
+            results.append(row)
+            seen_ids.add(row["id"])
+
+    miloteria_nj = fetch_miloteria_new_jersey(date_str)
+    for row in miloteria_nj:
+        if row["id"] not in seen_ids:
+            results.append(row)
+            seen_ids.add(row["id"])
+
+    # Ordenar por id numérico
+    results.sort(key=lambda x: int(x["id"]))
     return results
 
-
 def fetch_existing_from_supabase(date_str):
-    import urllib.parse
-
+    """Fetch previously saved results for the given date so we can merge."""
     key = f"lot_results_cache_by_day:{date_str}"
+    import urllib.parse
     params = urllib.parse.urlencode({"key": f"eq.{key}", "select": "value"})
     url = f"{SUPABASE_URL}/rest/v1/lotterynet_kv?{params}"
     req = urllib.request.Request(
@@ -384,27 +308,30 @@ def fetch_existing_from_supabase(date_str):
                 existing = json.loads(existing)
             if isinstance(existing, list):
                 return existing
-    except Exception as exc:
-        print(f"Warning: could not fetch existing results: {exc}")
+    except Exception as e:
+        print(f"Warning: could not fetch existing results: {e}")
     return []
 
-
-def save_to_supabase(date_str, results):
+def save_to_supabase(date_str, results, prune_missing_ids=None):
+    import urllib.parse
     key = f"lot_results_cache_by_day:{date_str}"
-    existing = fetch_existing_from_supabase(date_str)
-    merged = {row["id"]: row for row in existing}
-    for row in results:
-        merged[row["id"]] = row
-    merged_list = sorted(merged.values(), key=lambda row: int(row["id"]))
 
-    payload = json.dumps(
-        {
-            "key": key,
-            "value": json.dumps(merged_list, ensure_ascii=False),
-            "upd": datetime.datetime.utcnow().isoformat() + "Z",
-        }
-    ).encode("utf-8")
+    # Merge: preserve existing rows by default, override with fresh ones by id.
+    # For today's authoritatives we can optionally prune IDs that were not freshly found,
+    # which lets us clear stale same-day rows without damaging historical backfills.
+    existing = fetch_existing_from_supabase(date_str)
+    merged = {str(r["id"]): r for r in existing}
+    for stale_id in (prune_missing_ids or []):
+        merged.pop(str(stale_id), None)
+    for r in results:
+        merged[str(r["id"])] = r
+    merged_list = sorted(merged.values(), key=lambda x: int(x["id"]))
+
+    value = json.dumps(merged_list, ensure_ascii=False)
+
+    payload = json.dumps({"key": key, "value": value, "upd": datetime.datetime.utcnow().isoformat() + "Z"}).encode("utf-8")
     url = f"{SUPABASE_URL}/rest/v1/lotterynet_kv"
+
     req = urllib.request.Request(
         url,
         data=payload,
@@ -414,44 +341,40 @@ def save_to_supabase(date_str, results):
             "Authorization": f"Bearer {SUPABASE_KEY}",
             "Prefer": "resolution=merge-duplicates",
         },
-        method="POST",
+        method="POST"
     )
     try:
         resp = urllib.request.urlopen(req, timeout=15)
         print(f"Saved {len(merged_list)} results (merged) for {date_str} -> HTTP {resp.status}")
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode()
-        print(f"Supabase error {exc.code}: {body}")
-
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()
+        print(f"Supabase error {e.code}: {body}")
 
 if __name__ == "__main__":
-    today = get_dr_date_str()
-    print(
-        f"\n[RD] Scraping {today} "
-        f"(DR time, UTC now={datetime.datetime.utcnow().strftime('%H:%M')})..."
-    )
-    rd_results = scrape(today)
-    print(f"Found {len(rd_results)} RD lotteries")
-    for row in rd_results:
-        print(f"  [{row['id']}] {row['name']}: {row['number']}")
+    import sys
 
-    if not SUPABASE_KEY:
-        print("No SUPABASE_KEY - skipping save")
-    elif not rd_results:
-        print("No results found for today - skipping save (no draws yet or date mismatch)")
+    # No args: refresh today + yesterday + day before.
+    # Args: treat each arg as an explicit DD-MM-YYYY date to scrape and save.
+    if len(sys.argv) > 1:
+        target_dates = sys.argv[1:]
     else:
-        save_to_supabase(today, rd_results)
+        target_dates = [get_dr_date_str_for_offset(off) for off in range(0, 3)]
 
-    et_today = get_et_date_str()
-    print(f"\n[NJ] Scraping Pick 3/4 for ET date {et_today}...")
-    nj_results = scrape_nj_picks(et_today)
-    print(f"Found {len(nj_results)} NJ picks")
-    for row in nj_results:
-        print(f"  [{row['id']}] {row['name']}: {row['number']}")
+    print(f"\n[RD] Syncing dates: {', '.join(target_dates)} (UTC now={datetime.datetime.utcnow().strftime('%H:%M')})")
 
-    if not SUPABASE_KEY:
-        print("No SUPABASE_KEY - skipping NJ save")
-    elif nj_results:
-        save_to_supabase(et_today, nj_results)
-    else:
-        print("No NJ results yet - draws may not have occurred yet")
+    for idx, target_date in enumerate(target_dates):
+        print(f"\n[RD] Scraping {target_date}...")
+        results = scrape(target_date)
+        print(f"Found {len(results)} lotteries")
+        for r in results:
+            print(f"  [{r['id']}] {r['name']}: {r['number']}")
+
+        if not SUPABASE_KEY:
+            print("No SUPABASE_KEY — skipping save")
+            continue
+        if not results:
+            print(f"No results found for {target_date} — skipping save")
+            continue
+
+        prune_missing_ids = AUTHORITATIVE_NJ_IDS if idx == 0 and target_date == get_dr_date_str() else None
+        save_to_supabase(target_date, results, prune_missing_ids=prune_missing_ids)
