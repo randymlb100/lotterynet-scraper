@@ -74,7 +74,7 @@ class RenderAppContractsTest(unittest.TestCase):
         payload = json.loads(response.data.decode("utf-8"))
         self.assertEqual(200, response.status_code)
         self.assertTrue(payload["ok"])
-        self.assertEqual("lotterynet-results", payload["service"])
+        self.assertEqual("didactic-guacamole", payload["service"])
 
     def test_wsgi_system_results_returns_lotteries_and_picks_sections(self):
         rows = [{"id": "1", "name": "La Primera Día", "date": "02-05-2026", "number": "01-02-03"}]

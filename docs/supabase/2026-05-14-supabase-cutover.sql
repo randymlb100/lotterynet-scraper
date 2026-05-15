@@ -3,6 +3,7 @@
 --
 -- Required replacements:
 --   __RENDER_URL__ -> your Render base URL without trailing slash
+--   __WEBHOOK_SECRET__ -> LOTTERYNET_ADMIN_SHARED_SECRET from Render
 --
 -- This script does two things:
 -- 1. enables narrow Realtime replication for the tables the app listens to
@@ -78,20 +79,39 @@ end $$;
 create extension if not exists pg_net;
 
 drop trigger if exists lotterynet_render_cache_invalidate_results on public.lotterynet_kv;
+drop trigger if exists lotterynet_render_cache_invalidate_results_write on public.lotterynet_kv;
+drop trigger if exists lotterynet_render_cache_invalidate_results_delete on public.lotterynet_kv;
 
-create trigger lotterynet_render_cache_invalidate_results
-after insert or update or delete
+create trigger lotterynet_render_cache_invalidate_results_write
+after insert or update
 on public.lotterynet_kv
 for each row
 when (
-  coalesce(new.key, old.key) like 'lot_results_cache_by_day:%'
-  or coalesce(new.key, old.key) like 'pick_results_cache_by_day:%'
-  or coalesce(new.key, old.key) like 'manual_results_overrides_by_day:%'
+  new.key like 'lot_results_cache_by_day:%'
+  or new.key like 'pick_results_cache_by_day:%'
+  or new.key like 'manual_results_overrides_by_day:%'
 )
 execute function supabase_functions.http_request(
   '__RENDER_URL__/internal/supabase-cache-invalidate',
   'POST',
-  '{"Content-Type":"application/json"}',
+  '{"Content-Type":"application/json","x-lotterynet-admin-secret":"__WEBHOOK_SECRET__"}',
+  '{}',
+  '5000'
+);
+
+create trigger lotterynet_render_cache_invalidate_results_delete
+after delete
+on public.lotterynet_kv
+for each row
+when (
+  old.key like 'lot_results_cache_by_day:%'
+  or old.key like 'pick_results_cache_by_day:%'
+  or old.key like 'manual_results_overrides_by_day:%'
+)
+execute function supabase_functions.http_request(
+  '__RENDER_URL__/internal/supabase-cache-invalidate',
+  'POST',
+  '{"Content-Type":"application/json","x-lotterynet-admin-secret":"__WEBHOOK_SECRET__"}',
   '{}',
   '5000'
 );

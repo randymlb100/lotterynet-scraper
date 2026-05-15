@@ -815,7 +815,7 @@ def save_users_state_to_supabase(payload):
 @app.route("/api/v1/health", methods=["GET"])
 @app.route("/api/v1/", methods=["GET"])
 def api_v1_root():
-    return jsonify({"ok": True, "service": "lotterynet-results", "version": "v1"})
+    return jsonify({"ok": True, "service": "didactic-guacamole", "version": "v1"})
 
 
 @app.route("/api/v1/results", methods=["GET"])
@@ -930,7 +930,7 @@ def api_v1_scrape_picks():
 @app.route("/", methods=["GET"])
 def all_results():
     if not request.args.get("date") and not request.args.get("live"):
-        return jsonify({"ok": True, "service": "lotterynet-results"})
+        return jsonify({"ok": True, "service": "didactic-guacamole"})
     _, rows = results_for_request()
     return json_utf8(rows)
 
@@ -1129,14 +1129,14 @@ def run_pick_scraper():
 
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"ok": True, "service": "lotterynet-results"})
+    return jsonify({"ok": True, "service": "didactic-guacamole"})
 
 
 @app.route("/config-check", methods=["GET"])
 def config_check():
     return jsonify({
         "ok": True,
-        "service": "lotterynet-results",
+        "service": "didactic-guacamole",
         "supabaseUrlConfigured": bool(SUPABASE_URL.strip()),
         "supabaseKeyConfigured": bool(SUPABASE_KEY.strip()),
         "supabaseKeyPrefix": SUPABASE_KEY[:14] if SUPABASE_KEY else "",
