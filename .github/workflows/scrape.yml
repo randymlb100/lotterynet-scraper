@@ -1,12 +1,11 @@
 name: Scrape Lottery Results
 
 on:
-  workflow_dispatch:  # Render es el servicio principal; GitHub queda solo manual para no chocar resultados.
+  workflow_dispatch:
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    environment: production
     steps:
       - uses: actions/checkout@v6
 

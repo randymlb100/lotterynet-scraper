@@ -1,6 +1,7 @@
 import os
 import unittest
 import datetime
+from unittest.mock import AsyncMock, patch
 
 import scrape_and_save as scraper
 
@@ -594,6 +595,136 @@ class ScraperContractsTest(unittest.TestCase):
         )
 
         self.assertEqual([], rows)
+
+    def test_merge_us_pick_results_preserves_existing_published_over_new_pending(self):
+        existing = [{
+            "id": "US-P4-FL-PICK-4-EVENING",
+            "date": "14-05-2026",
+            "game": "pick4",
+            "name": "Florida Pick 4 Evening",
+            "number": "1-2-3-4",
+            "status": "published",
+            "firstSeenAt": "2026-05-14T01:00:00Z",
+            "lastSeenAt": "2026-05-14T01:00:00Z",
+        }]
+        incoming = [{
+            "id": "US-P4-FL-PICK-4-EVENING",
+            "date": "14-05-2026",
+            "game": "pick4",
+            "name": "Florida Pick 4 Evening",
+            "number": "",
+            "status": "pending",
+        }]
+
+        merged = scraper.merge_us_pick_results_by_id(
+            existing,
+            incoming,
+            observed_at="2026-05-14T02:00:00Z",
+        )
+
+        self.assertEqual(1, len(merged))
+        self.assertEqual("1-2-3-4", merged[0]["number"])
+        self.assertEqual("published", merged[0]["status"])
+        self.assertEqual("2026-05-14T01:00:00Z", merged[0]["firstSeenAt"])
+        self.assertEqual("2026-05-14T02:00:00Z", merged[0]["lastSeenAt"])
+
+    def test_merge_us_pick_results_upgrades_pending_to_published(self):
+        existing = [{
+            "id": "US-P4-FL-PICK-4-EVENING",
+            "date": "14-05-2026",
+            "game": "pick4",
+            "name": "Florida Pick 4 Evening",
+            "number": "",
+            "status": "pending",
+            "firstSeenAt": "2026-05-14T01:00:00Z",
+            "lastSeenAt": "2026-05-14T01:00:00Z",
+        }]
+        incoming = [{
+            "id": "US-P4-FL-PICK-4-EVENING",
+            "date": "14-05-2026",
+            "game": "pick4",
+            "name": "Florida Pick 4 Evening",
+            "number": "1-2-3-4",
+            "status": "published",
+        }]
+
+        merged = scraper.merge_us_pick_results_by_id(
+            existing,
+            incoming,
+            observed_at="2026-05-14T02:00:00Z",
+        )
+
+        self.assertEqual(1, len(merged))
+        self.assertEqual("1-2-3-4", merged[0]["number"])
+        self.assertEqual("published", merged[0]["status"])
+        self.assertEqual("2026-05-14T02:00:00Z", merged[0]["firstSeenAt"])
+        self.assertEqual("2026-05-14T02:00:00Z", merged[0]["lastSeenAt"])
+
+    def test_async_scrape_us_picks_uses_lotteryusa_fallback_for_missing_pick(self):
+        overview_rows = [{
+            "id": "US-P4-FL-PICK-4-EVENING",
+            "state": "Florida",
+            "stateCode": "FL",
+            "game": "pick4",
+            "gameName": "Pick 4",
+            "draw": "Evening Draw",
+            "date": "",
+            "number": "",
+            "status": "pending",
+            "playTypes": ["straight", "box"],
+            "source": "pick-4.com",
+        }]
+        fallback_rows = [{
+            "id": "US-P4-FL-PICK-4-EVENING",
+            "name": "Florida Pick 4 Evening",
+            "date": "14-05-2026",
+            "number": "2-8-4-4",
+        }]
+
+        with patch.object(scraper, "_async_fetch_us_pick_overview", AsyncMock(return_value=overview_rows)), \
+                patch.object(scraper, "_async_fetch_us_pick_state_history", AsyncMock(return_value=[])), \
+                patch.object(scraper, "_async_fetch_new_jersey_pick_home", AsyncMock(return_value=[])), \
+                patch.object(scraper, "_async_fetch_nj_picks_lotteryusa", AsyncMock(return_value=[])), \
+                patch.object(scraper, "_async_fetch_lotteryusa_pick_fallbacks", AsyncMock(return_value=fallback_rows)), \
+                patch.object(scraper, "_async_fetch_wa_match4", AsyncMock(return_value=[])):
+            rows = scraper.sync_run(scraper._async_scrape_us_picks("14-05-2026", games=("pick4",)))
+
+        self.assertEqual(1, len(rows))
+        self.assertEqual("2-8-4-4", rows[0]["number"])
+        self.assertEqual("14-05-2026", rows[0]["date"])
+
+    def test_async_scrape_us_picks_uses_nj_lotteryusa_backup(self):
+        overview_rows = [{
+            "id": "20",
+            "state": "New Jersey",
+            "stateCode": "NJ",
+            "game": "pick3",
+            "gameName": "Pick 3",
+            "draw": "Evening Draw",
+            "date": "",
+            "number": "",
+            "status": "pending",
+            "playTypes": ["straight", "box"],
+            "source": "pick-3.com",
+        }]
+        nj_rows = [{
+            "id": "20",
+            "name": "NJ Pick 3 Noche",
+            "date": "14-05-2026",
+            "number": "7-6-4",
+        }]
+
+        with patch.object(scraper, "_async_fetch_us_pick_overview", AsyncMock(return_value=overview_rows)), \
+                patch.object(scraper, "_async_fetch_us_pick_state_history", AsyncMock(return_value=[])), \
+                patch.object(scraper, "_async_fetch_new_jersey_pick_home", AsyncMock(return_value=[])), \
+                patch.object(scraper, "_async_fetch_nj_picks_lotteryusa", AsyncMock(return_value=nj_rows)), \
+                patch.object(scraper, "_async_fetch_lotteryusa_pick_fallbacks", AsyncMock(return_value=[])), \
+                patch.object(scraper, "_async_fetch_wa_match4", AsyncMock(return_value=[])):
+            rows = scraper.sync_run(scraper._async_scrape_us_picks("14-05-2026", games=("pick3",)))
+
+        self.assertEqual(1, len(rows))
+        self.assertEqual("7-6-4", rows[0]["number"])
+        self.assertEqual("14-05-2026", rows[0]["date"])
 
 
 if __name__ == "__main__":

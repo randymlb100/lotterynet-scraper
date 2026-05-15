@@ -1,2 +1,4 @@
 beautifulsoup4==4.14.3
 gunicorn==23.0.0
+httpx==0.28.1
+tzdata==2026.2
