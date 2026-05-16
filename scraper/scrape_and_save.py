@@ -37,6 +37,10 @@ US_PICK_SINGLE_DRAW_LABELS = {
     ("pick3", "WV"): "09:00 PM Draw",
 }
 
+US_PICK_LEGACY_RESULT_ID_ALIASES = {
+    "US-P3-AZ-PICK-3-DAY": "US-P3-AZ-PICK-3-DRAW",
+}
+
 US_PICK_SUNDAY_NO_DRAW_ROWS = [
     {"id": "US-P3-AR-CASH-3-MIDDAY", "state": "Arkansas", "stateCode": "AR", "game": "pick3", "gameName": "Cash 3", "draw": "Midday Draw"},
     {"id": "US-P3-SC-PICK-3-MIDDAY", "state": "South Carolina", "stateCode": "SC", "game": "pick3", "gameName": "Pick 3", "draw": "Midday Draw"},
@@ -1016,8 +1020,20 @@ async def _async_scrape_us_picks(date_str=None, games=None, existing_rows=None, 
             for row in overview_rows:
                 state_key = (row.get("stateCode"), row.get("gameName"))
                 if state_key not in history_keys:
-                    row["date"] = target_date
-                    game_rows_by_id[row["id"]] = row
+                    overview_date = str(row.get("date") or "").strip()
+                    overview_number = str(row.get("number") or "").strip()
+                    if overview_date == target_date:
+                        game_rows_by_id[row["id"]] = row
+                    elif not overview_number:
+                        pending_row = dict(row)
+                        pending_row["date"] = target_date
+                        game_rows_by_id[pending_row["id"]] = pending_row
+                    else:
+                        pending_row = dict(row)
+                        pending_row["date"] = target_date
+                        pending_row["number"] = ""
+                        pending_row["status"] = "pending"
+                        game_rows_by_id[pending_row["id"]] = pending_row
 
             # Extra states not listed in overview but with working subdomains
             extra_states = {"pick3": {"NH"}, "pick4": set()}
@@ -1782,6 +1798,10 @@ def _pick_result_quality(row):
 def merge_us_pick_results_by_id(existing, results, observed_at=None):
     observed = observed_at or utc_now_iso()
     merged = {str(r["id"]): dict(r) for r in existing if str(r.get("id", "")).strip()}
+    incoming_ids = {str(r.get("id", "")).strip() for r in results}
+    for legacy_id, canonical_id in US_PICK_LEGACY_RESULT_ID_ALIASES.items():
+        if canonical_id in incoming_ids:
+            merged.pop(legacy_id, None)
     for r in results:
         key = str(r.get("id", "")).strip()
         if not key:

@@ -693,6 +693,72 @@ class ScraperContractsTest(unittest.TestCase):
         self.assertEqual("2-8-4-4", rows[0]["number"])
         self.assertEqual("14-05-2026", rows[0]["date"])
 
+    def test_async_scrape_us_picks_does_not_redate_stale_overview_number(self):
+        overview_rows = [{
+            "id": "US-P3-AZ-PICK-3-DRAW",
+            "state": "Arizona",
+            "stateCode": "AZ",
+            "game": "pick3",
+            "gameName": "Pick 3",
+            "draw": "Draw",
+            "date": "14-05-2026",
+            "number": "4-5-2",
+            "playTypes": ["straight", "box"],
+            "source": "pick-3.com",
+        }]
+        fallback_rows = [{
+            "id": "US-P3-AZ-PICK-3-DRAW",
+            "state": "Arizona",
+            "stateCode": "AZ",
+            "game": "pick3",
+            "gameName": "Pick 3",
+            "draw": "Draw",
+            "date": "15-05-2026",
+            "number": "8-1-6",
+            "playTypes": ["straight", "box"],
+            "source": "lotteryusa.com",
+        }]
+
+        with patch.object(scraper, "_async_fetch_us_pick_overview", AsyncMock(return_value=overview_rows)), \
+                patch.object(scraper, "_async_fetch_us_pick_state_history", AsyncMock(return_value=[])), \
+                patch.object(scraper, "_async_fetch_new_jersey_pick_home", AsyncMock(return_value=[])), \
+                patch.object(scraper, "_async_fetch_nj_picks_lotteryusa", AsyncMock(return_value=[])), \
+                patch.object(scraper, "_async_fetch_lotteryusa_pick_fallbacks", AsyncMock(return_value=fallback_rows)), \
+                patch.object(scraper, "_async_fetch_wa_match4", AsyncMock(return_value=[])):
+            rows = scraper.sync_run(scraper._async_scrape_us_picks("15-05-2026", games=("pick3",)))
+
+        self.assertEqual(1, len(rows))
+        self.assertEqual("15-05-2026", rows[0]["date"])
+        self.assertEqual("8-1-6", rows[0]["number"])
+        self.assertEqual("lotteryusa.com", rows[0]["source"])
+
+    def test_merge_us_pick_results_prunes_legacy_arizona_day_alias(self):
+        existing = [{
+            "id": "US-P3-AZ-PICK-3-DAY",
+            "state": "Arizona",
+            "stateCode": "AZ",
+            "game": "pick3",
+            "gameName": "Pick 3",
+            "draw": "Day Draw",
+            "date": "15-05-2026",
+            "number": "4-5-2",
+        }]
+        results = [{
+            "id": "US-P3-AZ-PICK-3-DRAW",
+            "state": "Arizona",
+            "stateCode": "AZ",
+            "game": "pick3",
+            "gameName": "Pick 3",
+            "draw": "Draw",
+            "date": "15-05-2026",
+            "number": "3-7-3",
+        }]
+
+        rows = scraper.merge_us_pick_results_by_id(existing, results, observed_at="2026-05-16T03:00:00Z")
+
+        self.assertEqual(["US-P3-AZ-PICK-3-DRAW"], [row["id"] for row in rows])
+        self.assertEqual("3-7-3", rows[0]["number"])
+
     def test_async_scrape_us_picks_uses_nj_lotteryusa_backup(self):
         overview_rows = [{
             "id": "20",
